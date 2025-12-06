@@ -1,0 +1,329 @@
+# 安装 Google GenAI SDK
+!pip install -q -U google-genai
+
+import os
+import json
+import base64
+import io
+import time
+import dataclasses
+import numpy as np
+import pandas as pd
+from typing import List, Dict, Any, Optional
+
+from PIL import Image, ImageDraw, ImageFont, ImageColor
+from google import genai
+from google.genai import types
+from google.genai.types import ThinkingConfig
+
+# ==========================================
+# 配置 API Key
+# ==========================================
+# 建议在 Colab 左侧的 'Secrets' (钥匙图标) 中设置 GEMINI_API_KEY
+# 或者直接在这里替换字符串 (注意安全)
+from google.colab import userdata
+try:
+    GOOGLE_API_KEY = userdata.get('GEMINI_API_KEY')
+except:
+    GOOGLE_API_KEY = "YOUR_API_KEY_HERE"  #在此处填入你的 Key
+
+os.environ["GEMINI_API_KEY"] = GOOGLE_API_KEY
+
+print("Environment setup complete.")
+
+# Part 2: 基础工具类 (Utils)
+# ==========================================
+# 1. 数据结构定义 (Data Structures)
+# ==========================================
+
+@dataclasses.dataclass(frozen=True)
+class SegmentationMask:
+    """
+    存储单个分割对象的元数据和掩膜数据
+    """
+    y0: int             # 边界框上边缘 (Top)
+    x0: int             # 边界框左边缘 (Left)
+    y1: int             # 边界框下边缘 (Bottom)
+    x1: int             # 边界框右边缘 (Right)
+    mask: np.ndarray    # 二值化掩膜 (Binary Mask)
+    label: str          # 原始标签 (Raw Label)
+
+# ==========================================
+# 2. 解析工具 (Parsing Utils)
+# ==========================================
+
+def parse_json_garbage(json_output: str) -> str:
+    """
+    清理 Gemini 返回的 Markdown 格式，提取纯 JSON 字符串
+    """
+    lines = json_output.splitlines()
+    for i, line in enumerate(lines):
+        if line == "```json":
+            json_output = "\n".join(lines[i + 1:])
+            json_output = json_output.split("```")[0]
+            break
+    return json_output.strip()
+
+def parse_segmentation_masks(predicted_str: str, img_height: int, img_width: int) -> List[SegmentationMask]:
+    """
+    将 API 返回的 JSON 响应转换为 SegmentationMask 对象列表
+    包含 Base64 解码和坐标反归一化逻辑
+    """
+    try:
+        clean_json = parse_json_garbage(predicted_str)
+        items = json.loads(clean_json)
+    except json.JSONDecodeError:
+        print("Error: Failed to parse JSON response.")
+        return []
+
+    masks = []
+    for item in items:
+        # 获取归一化坐标 (0-1000)
+        box_2d = item.get("box_2d", [])
+        if len(box_2d) != 4: continue
+
+        # 转换为绝对像素坐标
+        abs_y0 = int(box_2d[0] / 1000 * img_height)
+        abs_x0 = int(box_2d[1] / 1000 * img_width)
+        abs_y1 = int(box_2d[2] / 1000 * img_height)
+        abs_x1 = int(box_2d[3] / 1000 * img_width)
+
+        if abs_y0 >= abs_y1 or abs_x0 >= abs_x1: continue
+
+        # 处理 Base64 Mask
+        label = item.get("label", "unknown")
+        png_str = item.get("mask", "").replace("data:image/png;base64,", "")
+        
+        try:
+            mask_img = Image.open(io.BytesIO(base64.b64decode(png_str)))
+            # 将 Mask 缩放到边界框大小
+            mask_img = mask_img.resize((abs_x1 - abs_x0, abs_y1 - abs_y0), resample=Image.Resampling.BILINEAR)
+            
+            # 创建全尺寸 Mask
+            np_mask = np.zeros((img_height, img_width), dtype=np.uint8)
+            np_mask[abs_y0:abs_y1, abs_x0:abs_x1] = mask_img
+            
+            masks.append(SegmentationMask(abs_y0, abs_x0, abs_y1, abs_x1, np_mask, label))
+        except Exception as e:
+            print(f"Error processing mask for {label}: {e}")
+            continue
+
+    return masks
+
+# ==========================================
+# 3. 可视化工具 (Visualization Utils)
+# ==========================================
+
+def visualize_results(img: Image.Image, masks: List[SegmentationMask], results_df: pd.DataFrame = None):
+    """
+    在图像上绘制分割掩膜、边界框，并标注诊断出的损坏等级
+    """
+    result_img = img.copy().convert("RGBA")
+    draw = ImageDraw.Draw(result_img)
+    colors = ['red', 'orange', 'yellow', 'purple', 'blue', 'green']
+    
+    # 尝试加载字体
+    try:
+        font = ImageFont.truetype("arial.ttf", 16)
+    except:
+        font = ImageFont.load_default()
+
+    # 绘制 Mask 和 边界框
+    for i, mask in enumerate(masks):
+        color_name = colors[i % len(colors)]
+        rgb = ImageColor.getrgb(color_name)
+        
+        # 1. 绘制半透明 Mask
+        mask_layer = np.zeros((img.size[1], img.size[0], 4), dtype=np.uint8)
+        mask_layer[mask.mask > 127] = rgb + (100,) # Alpha = 100
+        result_img = Image.alpha_composite(result_img, Image.fromarray(mask_layer, 'RGBA'))
+        
+        # 2. 绘制边界框
+        draw = ImageDraw.Draw(result_img) # 重新获取 Draw 对象
+        draw.rectangle(((mask.x0, mask.y0), (mask.x1, mask.y1)), outline=color_name, width=3)
+        
+        # 3. 绘制诊断标签 (如果提供了结果 DataFrame)
+        label_text = mask.label
+        if results_df is not None and not results_df.empty:
+            # 查找对应的诊断结果
+            row = results_df[results_df['ID'] == f"obj_{i}"]
+            if not row.empty:
+                dmg_type = row.iloc[0]['Damage_Type']
+                level = row.iloc[0]['Level']
+                label_text = f"{mask.label}\n{dmg_type}\n({level})"
+
+        # 绘制带背景的文字
+        text_pos = (mask.x0, mask.y0 - 40 if mask.y0 > 40 else mask.y1 + 5)
+        bbox = draw.textbbox(text_pos, label_text, font=font)
+        draw.rectangle(bbox, fill="black")
+        draw.text(text_pos, label_text, fill=color_name, font=font)
+
+    return result_img
+
+# Part 3: Damage Recognition Agent (核心类)
+class DamageRecognitionAgent:
+    """
+    3.2.3 Damage Recognition Agent
+    核心执行模块：负责对象级灾害理解和精细化损伤识别。
+    架构：Two-stage cascaded architecture ("Locate-then-Diagnose").
+    """
+
+def __init__(self, api_key: str):
+        self.client = genai.Client(api_key=api_key)
+        
+        # --- 飓风街景灾害词库 (Hurricane SVI Lexicon) ---
+        # 针对 "街景视角 (Ground-level View)" 进行了优化
+        # 重点关注：立面损伤、路面障碍、前景危险物
+        
+        self.damaged_object_lexicon = [
+            # 1. 建筑立面与结构 (Building Facade & Structure)
+            # 街景最容易看到的是墙面和窗户，而不只是屋顶
+            "damaged building facade",  # 受损建筑立面 (外墙剥落、结构破损)
+            "broken window",            # 破碎窗户 (强风最直接的证据)
+            "damaged roof",             # 受损屋顶 (仅针对低层建筑可见部分：掀盖、瓦片缺失)
+            "collapsed structure",      # 倒塌结构 (严重的房屋完全损毁)
+            
+            # 2. 街景特有的基础设施危险 (Street-level Infrastructure)
+            # 卫星看不到 "电线"，但这对街景至关重要
+            "downed power lines",       # 掉落/低垂的输电线 (街景核心危险源)
+            "leaning utility pole",     # 倾斜/倒塌的电线杆
+            "traffic sign damage",      # 受损/扭曲的交通标志 (反映风力强度)
+
+            # 3. 道路通行性 (Road Accessibility)
+            # 关注 "路能不能走"
+            "fallen tree blocking road",# 阻断道路的倒树
+            "debris on road",           # 路面废墟/垃圾 (阻碍通行的混合物)
+            "flooded street",           # 被淹街道 (积水区域，街景视角的洪水)
+            
+            # 4. 植被与环境 (Vegetation & Environment)
+            "uprooted tree",            # 连根拔起的树 (路边常见)
+            "snapped tree trunk"        # 折断的树干
+        ]
+
+    def _step_1_locate(self, image: Image.Image) -> List[SegmentationMask]:
+        """
+        Stage A: Infrastructure Instance Localization
+        功能：解决 "Where are they?" 和 "What are they?"
+        """
+        print("--- Step 1: Locating Damaged Instances (Segmentation) ---")
+        
+        prompt = f"""
+        You are a disaster assessment expert. 
+        Find and segment ONLY the damaged or hazardous objects in the image based on this lexicon:
+        {', '.join(self.damaged_object_lexicon)}.
+        
+        Ignore undamaged structures and normal vegetation.
+        
+        Output a JSON list of segmentation masks where each entry contains:
+        1. "box_2d": [ymin, xmin, ymax, xmax] (normalized 0-1000)
+        2. "mask": Base64 encoded PNG mask
+        3. "label": The specific category from the lexicon
+        """
+
+        try:
+            response = self.client.models.generate_content(
+                model="gemini-2.5-pro-exp-03-25", # 使用最新的实验模型进行分割
+                contents=[prompt, image],
+                config=types.GenerateContentConfig(
+                    temperature=0.5,
+                    thinking_config=ThinkingConfig(thinking_budget=8192) # 开启思考模式以提高分割精度
+                )
+            )
+            return parse_segmentation_masks(response.text, image.height, image.width)
+        except Exception as e:
+            print(f"Localization failed: {e}")
+            return []
+
+    def _step_2_diagnose(self, image_patch: Image.Image, category: str) -> Dict[str, Any]:
+        """
+        Stage B: Fine-grained Damage Reasoning
+        功能：解决 "What happened?" 和 "How severe is it?"
+        技术：Visual Question Answering (VQA)
+        """
+        # Chain-of-Thought Prompt Design (来自你的文档)
+        prompt = f"""
+        Focus on the image patch of the {category}. 
+        Step 1: Analyze the visual features (e.g., cracks, debris, submersion). 
+        Step 2: Determine the damage type (Structural/Flooding/Roof Collapse/Toppling/None). 
+        Step 3: Assess the damage level (Mild: superficial cracks; Moderate: partial collapse; Severe: total destruction). 
+        
+        Output the result in strictly JSON format:
+        {{
+            "Damage_Type": "String",
+            "Level": "String", 
+            "Confidence": Float (0.0-1.0)
+        }}
+        """
+
+        try:
+            response = self.client.models.generate_content(
+                model="gemini-1.5-pro", # 使用 Pro 版本进行复杂推理
+                contents=[prompt, image_patch],
+                config=types.GenerateContentConfig(temperature=0.2)
+            )
+            
+            clean_json = parse_json_garbage(response.text)
+            return json.loads(clean_json)
+        except Exception as e:
+            print(f"Diagnosis failed for {category}: {e}")
+            return {"Damage_Type": "Unknown", "Level": "Unknown", "Confidence": 0.0}
+
+    def execute(self, image_path: str) -> pd.DataFrame:
+        """
+        执行完整的 Locate-then-Diagnose 流程
+        Stage C: Structured Evidence Generation
+        """
+        # 1. 加载图像
+        try:
+            original_img = Image.open(image_path).convert("RGB")
+            # 缩放以优化 API 性能 (可选)
+            original_img.thumbnail((1024, 1024)) 
+        except IOError:
+            print("Error: Cannot load image.")
+            return pd.DataFrame()
+
+        # 2. 执行定位 (Locate)
+        masks = self._step_1_locate(original_img)
+        
+        if not masks:
+            print("No damaged objects found.")
+            return pd.DataFrame(), original_img
+
+        structured_evidence = []
+        print(f"Found {len(masks)} potential objects. Starting diagnosis...")
+
+        # 3. 执行诊断 (Diagnose)
+        for idx, mask_obj in enumerate(masks):
+            obj_id = f"obj_{idx}"
+            print(f"  Diagnosing ID {obj_id}: {mask_obj.label}...")
+            
+            # 裁剪图像 (Instance Cropping)
+            # 增加一点 Padding 让模型看到边缘
+            pad = 10
+            crop_box = (
+                max(0, mask_obj.x0 - pad),
+                max(0, mask_obj.y0 - pad),
+                min(original_img.width, mask_obj.x1 + pad),
+                min(original_img.height, mask_obj.y1 + pad)
+            )
+            image_patch = original_img.crop(crop_box)
+            
+            # VQA 推理
+            diagnosis = self._step_2_diagnose(image_patch, mask_obj.label)
+            
+            # 4. 生成结构化证据 (Structured Evidence Generation)
+            record = {
+                "ID": obj_id,
+                "Object": mask_obj.label,
+                "Damage_Type": diagnosis.get("Damage_Type", "Unknown"),
+                "Level": diagnosis.get("Level", "Unknown"),
+                "Confidence": diagnosis.get("Confidence", 0.0),
+                "Location": [mask_obj.x0, mask_obj.y0, mask_obj.x1 - mask_obj.x0, mask_obj.y1 - mask_obj.y0] # [x, y, w, h]
+            }
+            structured_evidence.append(record)
+
+        # 转换为 DataFrame
+        df = pd.DataFrame(structured_evidence)
+        return df, original_img, masks
+
+print("Agent initialized.")
