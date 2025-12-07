@@ -1,3 +1,5 @@
+#记得用banana进行图像修复哦，我印象gemini-2.5-flash应该是不可以的
+
 from google.colab import drive
 drive.mount('/content/drive')
 
