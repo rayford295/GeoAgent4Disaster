@@ -16,7 +16,7 @@ from openai import OpenAI
 #   0. OpenAI Client
 # =========================
 
-OPENAI_API_KEY = "YOUR_OPENAI_API_KEY_HERE"
+OPENAI_API_KEY = "KEY"
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ========== Global utilities ==========
@@ -302,6 +302,114 @@ class DisasterReasoner:
         return text
 
 
+class TaskPlanner:
+    """
+    Task planner that consumes:
+      - mode_result (from ModePerceiver)
+      - reasoning_text (from DisasterReasoner)
+    and constructs a concise tool-use plan specifying which downstream
+    agents to invoke (e.g., ImageRestorationAgent, DamageRecognitionAgent).
+    """
+
+    def __init__(self, model_name: str = "gpt-4.1-mini"):
+        self.model_name = model_name
+
+    def plan(
+        self,
+        mode_result: Dict[str, Any],
+        reasoning_text: str,
+        image_paths: List[str],
+        view_types: List[str],
+        needs_restoration: List[bool],
+        copied_paths: List[str],
+    ) -> Dict[str, Any]:
+        # 为避免 prompt 过长，这里截断 reasoning_text
+        truncated_reasoning = reasoning_text[:2000]
+
+        planner_input = {
+            "mode_result": mode_result,
+            "reasoning_text_truncated": truncated_reasoning,
+            "image_paths": image_paths,
+            "view_types": view_types,
+            "needs_restoration": needs_restoration,
+            "restoration_copied_paths": copied_paths,
+        }
+
+        content: List[Dict[str, Any]] = [
+            {
+                "type": "input_text",
+                "text": (
+                    "You are a task planner in a multi-agent GeoAI system for natural disaster assessment.\n\n"
+                    "Upstream modules have already produced:\n"
+                    "- mode_result: prediction of image mode, hazard type, and which images need restoration.\n"
+                    "- reasoning_text: a detailed narrative description of observed damage.\n\n"
+                    "Downstream agents available:\n"
+                    "1. ImageRestorationAgent  – improves image quality for inputs that visually need restoration.\n"
+                    "2. DamageRecognitionAgent – performs structured damage recognition / segmentation / classification.\n"
+                    "3. DisasterReasoningAgent – already run in this pipeline; you usually do NOT need to re-run it.\n\n"
+                    "Your job is to construct a concise tool-use plan that decides:\n"
+                    "- whether ImageRestorationAgent should be invoked,\n"
+                    "- for which images it should be invoked (by index, view_type, and path),\n"
+                    "- whether DamageRecognitionAgent should be invoked and with what main inputs.\n\n"
+                    "Here is the structured input from upstream modules:\n"
+                    + json.dumps(planner_input, ensure_ascii=False, indent=2)
+                ),
+            }
+        ]
+
+        system_instruction = (
+            "You are a careful planner. Based on the provided JSON, decide which downstream agents to run.\n"
+            "Typically:\n"
+            "- If any image in needs_restoration is true, you should include ImageRestorationAgent.\n"
+            "- If hazard_type is not 'other' or the reasoning_text describes visible damage, you should include DamageRecognitionAgent.\n"
+            "- DisasterReasoningAgent has already been executed upstream; only include it if you strongly believe a second pass is necessary.\n\n"
+            "Return a SINGLE JSON object with the following structure:\n"
+            "{\n"
+            '  \"downstream_agents\": [\"ImageRestorationAgent\", \"DamageRecognitionAgent\", ...],\n'
+            '  \"should_invoke_restoration\": bool,\n'
+            '  \"restoration_targets\": [\n'
+            "    {\n"
+            '      \"image_index\": int,\n'
+            '      \"view_type\": \"sv\" | \"rs\",\n'
+            '      \"original_path\": string,\n'
+            '      \"copied_path\": string | null,\n'
+            '      \"reason\": string\n'
+            "    }, ...\n"
+            "  ],\n"
+            '  \"should_invoke_damage_recognition\": bool,\n'
+            '  \"damage_recognition_inputs\": {\n'
+            '    \"image_paths\": [string, ...],\n'
+            '    \"priority_notes\": string\n'
+            "  },\n"
+            '  \"planner_notes\": string  # short natural language explanation of the plan\n'
+            "}\n\n"
+            "Only output valid JSON with no extra commentary."
+        )
+
+        data = openai_json_call(
+            model=self.model_name,
+            user_content=content,
+            system_instruction=system_instruction,
+            temperature=0.2,
+        )
+
+        # 简单兜底
+        data.setdefault("downstream_agents", [])
+        data.setdefault("should_invoke_restoration", any(needs_restoration))
+        data.setdefault("restoration_targets", [])
+        data.setdefault("should_invoke_damage_recognition", True)
+        data.setdefault(
+            "damage_recognition_inputs",
+            {
+                "image_paths": image_paths,
+                "priority_notes": "Fallback default plan.",
+            },
+        )
+        data.setdefault("planner_notes", "Fallback default plan generated by TaskPlanner.")
+
+        return data
+
+
 def infer_view_types(pred_mode: str, num_images: int) -> List[str]:
     """
     Infer whether each image is street-view (sv) or remote-sensing (rs)
@@ -352,9 +460,11 @@ class DisasterPerceptionAgent:
         self,
         mode_perceiver: ModePerceiver,
         reasoner: DisasterReasoner,
+        task_planner: TaskPlanner,
     ):
         self.mode_perceiver = mode_perceiver
         self.reasoner = reasoner
+        self.task_planner = task_planner
 
     def run(
         self,
@@ -366,7 +476,8 @@ class DisasterPerceptionAgent:
         Main entry point:
           1. Recognize mode and hazard type and whether restoration is needed;
           2. Generate detailed reasoning text based on mode and hazard;
-          3. Copy images that need restoration into to_restore/sv and to_restore/rs.
+          3. Copy images that need restoration into to_restore/sv and to_restore/rs;
+          4. Call TaskPlanner to construct a concise tool-use plan.
         """
         if not isinstance(images, list):
             images = [images]
@@ -381,10 +492,13 @@ class DisasterPerceptionAgent:
             mode_result=mode_result,
         )
 
-        # 3) Copy images for restoration
+        # 3) Restoration info
         n_img = len(pil_images)
         view_types = infer_view_types(mode_result.get("pred_mode", ""), n_img)
         needs_restoration = mode_result.get("needs_restoration", [False] * n_img)
+        if len(needs_restoration) != n_img:
+            needs_restoration = (needs_restoration + [False] * n_img)[:n_img]
+
         copied_paths = copy_images_for_restoration(
             image_paths=image_paths,
             view_types=view_types,
@@ -392,14 +506,27 @@ class DisasterPerceptionAgent:
             out_root="to_restore",
         )
 
+        restoration_info = {
+            "view_types": view_types,
+            "needs_restoration": needs_restoration,
+            "copied_paths": copied_paths,
+        }
+
+        # 4) Task planning (consumes outputs of previous two modules)
+        tool_plan = self.task_planner.plan(
+            mode_result=mode_result,
+            reasoning_text=reasoning_text,
+            image_paths=image_paths,
+            view_types=view_types,
+            needs_restoration=needs_restoration,
+            copied_paths=copied_paths,
+        )
+
         return {
             "mode_and_hazard": mode_result,
             "reasoning_text": reasoning_text,
-            # "restoration": {
-            #     "view_types": view_types,
-            #     "needs_restoration": needs_restoration,
-            #     "copied_paths": copied_paths,
-            # },
+            "restoration": restoration_info,
+            "tool_plan": tool_plan,
         }
 
 
@@ -409,7 +536,6 @@ def collect_cases_from_dataset(
 ) -> List[Dict[str, Any]]:
     """
     Collect all cases from a three-level dataset directory structure.
-      }
     """
     root = Path(dataset_root)
     if not root.exists():
@@ -474,14 +600,16 @@ if __name__ == "__main__":
     # 2. Initialize submodules and agent
     mode_perceiver = ModePerceiver(model_name="gpt-4.1-mini")
     reasoner = DisasterReasoner(model_name="gpt-4.1-mini")
+    task_planner = TaskPlanner(model_name="gpt-4.1-mini")
 
     agent = DisasterPerceptionAgent(
         mode_perceiver=mode_perceiver,
         reasoner=reasoner,
+        task_planner=task_planner,
     )
 
     # Output directory
-    results_dir = Path("outputs/results")
+    results_dir = Path("outputs/results1209")
     results_dir.mkdir(parents=True, exist_ok=True)
 
     # 3. Run each case and write JSON
