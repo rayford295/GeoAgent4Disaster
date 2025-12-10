@@ -1,129 +1,219 @@
 import pandas as pd
 import json
 import os
+from typing import Dict, List, Tuple, Any
 from google import genai
 from google.genai import types
-from IPython.display import Markdown, display
+from IPython.display import display, HTML
+
+# Ensure API Key is set in the environment variables
+# os.environ["GEMINI_API_KEY"] = "YOUR_API_KEY"
 
 class DisasterReasoningAgent:
     """
-    3.2.4 Disaster Reasoning Agent (No-GIS Version)
-    角色：基于视觉语义的灾害链推理者
-    功能：仅依赖视觉识别结果，利用 LLM 的常识库进行因果分析和策略生成。
+    Implements the Semantic Reasoning Module of the GeoAgent4Disaster framework.
+    
+    This agent aligns visual perception data (from RSI and SVI) with domain knowledge 
+    to generate spatially explicit, explainable situational assessment reports 
+    in a zero-shot manner.
     """
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model_name: str = "gemini-2.0-flash"):
+        """
+        Initialize the reasoning engine.
+
+        Args:
+            api_key (str): Authentication key for the LLM backend.
+            model_name (str): The specific model version for inference.
+        """
         self.client = genai.Client(api_key=api_key)
+        self.model_name = model_name
 
-    def _format_visual_evidence(self, damage_df: pd.DataFrame) -> str:
+    def _serialize_visual_evidence(self, observation_df: pd.DataFrame) -> Tuple[str, List[str]]:
         """
-        数据预处理
-        功能：将结构化的 DataFrame 转换为 LLM 易读的自然语言描述列表。
-        不再需要 GIS 融合，而是强调“对象类型”和“损伤等级”。
+        Serializes the structured visual detection data into a natural language context 
+        for the Large Multimodal Model (LMM).
+
+        Args:
+            observation_df (pd.DataFrame): Dataframe containing detected objects, 
+                                           source modality (RSI/SVI), and damage levels.
+
+        Returns:
+            Tuple[str, List[str]]: A tuple containing the serialized text context 
+                                   and a list of unique detected object categories.
         """
-        evidence_list = []
+        context_lines = []
+        unique_objects = set()
         
-        # 遍历损伤表格
-        for _, row in damage_df.iterrows():
-            obj_id = row['ID']
-            obj_type = row['Object']
-            damage_type = row['Damage_Type']
-            level = row['Level']
-            # reasoning = row.get('Reasoning', 'N/A') # 如果上一主要有推理字段也可以加上
+        for _, row in observation_df.iterrows():
+            obj_category = row.get('Object', 'Unidentified')
+            severity = row.get('Level', 'Unknown')
+            modality = row.get('Source', 'Multimodal')
+            description = row.get('Context', 'No contextual details provided')
             
-            # 构建描述字符串
-            # 强调对象的功能属性隐含在 Object 名称中 (如 'Power Lines' implies Infrastructure)
-            record = (
-                f"- **Object ID**: {obj_id}\n"
-                f"  - Category: {obj_type}\n"
-                f"  - Damage State: {damage_type} (Severity: {level})\n"
+            unique_objects.add(obj_category)
+            
+            # Formulate a structured observation log
+            entry = (
+                f"- **Modality**: {modality}\n"
+                f"  - Entity: {obj_category}\n"
+                f"  - Damage State: {severity}\n"
+                f"  - Semantic Context: {description}\n"
             )
-            evidence_list.append(record)
+            context_lines.append(entry)
             
-        return "\n".join(evidence_list)
+        return "\n".join(context_lines), list(unique_objects)
 
-    def run_reasoning_engine(self, damage_df: pd.DataFrame):
+    def execute_inference(self, observation_df: pd.DataFrame) -> Dict[str, Any]:
         """
-        阶段 B & C: Disaster Chain Reasoning & Recovery Strategist
+        Executes the Chain-of-Thought (CoT) reasoning process to generate the disaster report.
+
+        This method constructs the prompt, invokes the LMM, and parses the JSON output.
+
+        Args:
+            observation_df (pd.DataFrame): The input visual perception data.
+
+        Returns:
+            Dict[str, Any]: The structured JSON assessment report.
         """
         
-        # 1. 格式化视觉证据
-        print("--- Step 1: Aggregating Visual Evidence ---")
-        evidence_text = self._format_visual_evidence(damage_df)
+        # 1. Data Serialization
+        evidence_context, detected_entities = self._serialize_visual_evidence(observation_df)
+        entities_str = ", ".join(detected_entities)
         
-        # 2. 构建推理提示词 (Chain-of-Thought)
-        # 这里的 Prompt 经过调整，让 AI 利用通用知识 (Common Sense) 来替代 GIS 数据
+        # 2. Prompt Engineering
+        # Designed to enforce the output schema required for the comparative study table.
+        system_prompt = f"""
+        Role: Autonomous Disaster Response Strategist (GeoAgent).
         
-        prompt = f"""
-        You are a Chief Disaster Response Strategist. 
-        Analyze the following "Visual Damage Inspection Report" derived from street-view imagery of a hurricane-hit area.
-        
-        Since specific GIS location data is unavailable, you must rely on **Object Semantics** (the nature of the object) to determine priority.
+        Task: Synthesize a "Situational Awareness Report" based on the provided multi-view visual evidence. 
+        The evidence combines Remote Sensing Imagery (RSI) for macro-scale context and Street View Imagery (SVI) for micro-scale details.
 
-        === VISUAL EVIDENCE INPUT ===
-        {evidence_text}
-        
-        === REASONING TASKS ===
-        Perform the analysis in three logical stages:
+        === VISUAL PERCEPTION LOG ===
+        {evidence_context}
 
-        Stage 1: Semantic Causal Inference (The "Disaster Chain")
-        - **Attribution**: Based on the object and damage type, infer the cause (e.g., "Tree uprooted" -> likely high wind gusts; "Flooded street" -> likely storm surge or heavy rain).
-        - **Propagation & Interaction**: Infer how one damage might affect another. 
-          *Example: If there are 'downed power lines' AND 'flooded streets', identify the extreme electrocution risk.*
-          *Example: If 'debris on road', infer that emergency access is blocked.*
+        === INFERENCE REQUIREMENTS ===
+        1. **Cross-View Validation**: Integrate findings from both RSI (e.g., saturated ground) and SVI (e.g., debris piles) to validate the disaster type.
+        2. **Causal Reasoning**: Explain the link between the visual cues (e.g., gutted homes) and the physical mechanism (e.g., storm surge).
+        3. **Actionability**: Propose recovery steps based on the functional criticality of the damaged infrastructure.
 
-        Stage 2: Situational Assessment
-        - Provide an overall "Disaster Severity Score" (1-10) for this scene.
-        - Describe the "Immediate Threats" (e.g., live wires, blocked escape routes).
+        === OUTPUT SCHEMA (JSON) ===
+        Generate a valid JSON object with the following keys exactly:
+        {{
+            "Type of disaster": "String (e.g., Hurricane, Earthquake)",
+            "Image restoration": "String (No/Yes)",
+            "Disaster severity classification": "String (Severe/Moderate/Minor)",
+            "Voted candidate": "String (e.g., SVI and RSI)",
+            "Confidence": "Float (0.0 - 1.0)",
+            "Object recognition": "String (List key entities detected)",
+            "Disaster Assessment Suggestion Reasoning": "String (Detailed analytical paragraph explaining the severity)",
+            "Disaster Recovery / Reconstruction Suggestion Reasoning": "String (Detailed actionable paragraph for response teams)"
+        }}
 
-        Stage 3: Recovery Strategy (Action Plan)
-        - Generate a prioritized repair list based on **Functional Criticality**: 
-          **Rule**: Life-Safety Hazards (Power/Collapse) > Mobility (Roads) > Property (Roofs/Facades) > Aesthetics (Trees).
-        - Provide specific resource commands (e.g., "Dispatch utility crew for ID_xx", "Send bulldozer for ID_yy").
-
-        === OUTPUT FORMAT ===
-        Output a structured Markdown report titled "## Context-Aware Disaster Assessment Report".
+        Ensure the reasoning is logically sound and consistent with the detected entities: {entities_str}.
         """
 
-        print("--- Step 2: Running Reasoning Engine (Gemini 1.5 Pro) ---")
+        print(f"[{self.__class__.__name__}] Executing zero-shot inference on {self.model_name}...")
+        
         try:
-            # 使用 1.5 Pro 进行逻辑推理
             response = self.client.models.generate_content(
-                model="gemini-1.5-pro",
-                contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.3)
+                model=self.model_name,
+                contents=system_prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1  # Low temperature for deterministic output
+                )
             )
-            return response.text
+            return json.loads(response.text)
         except Exception as e:
-            return f"Reasoning Engine Failed: {e}"
+            return {
+                "Error": "Inference Failure",
+                "Details": str(e), 
+                "Type of disaster": "Unknown"
+            }
+
+    def render_report_table(self, report_json: Dict[str, Any]) -> pd.DataFrame:
+        """
+        Transforms the JSON report into a formatted DataFrame for visualization,
+        matching the evaluation metrics structure.
+        """
+        # Define the schema order for presentation
+        schema_order = [
+            "Type of disaster",
+            "Image restoration",
+            "Disaster severity classification",
+            "Voted candidate",
+            "Confidence",
+            "Object recognition",
+            "Disaster Assessment Suggestion Reasoning",
+            "Disaster Recovery / Reconstruction Suggestion Reasoning"
+        ]
+        
+        # Extract and align data
+        data_map = {
+            "GeoAgent (Proposed)": [report_json.get(k, "N/A") for k in schema_order]
+        }
+        
+        df_result = pd.DataFrame(data_map, index=schema_order)
+        df_result.index.name = "Evaluation Metrics"
+        
+        return df_result
 
 # ==========================================
-# 模拟运行 (Simulation)
+# Main Execution Block (Simulation)
 # ==========================================
 
-# 1. 准备数据：假设这是上一部 Agent (DamageRecognitionAgent) 输出的真实 DataFrame
-# 注意：这里完全没有 GIS ID，只有识别出的物体本身
-mock_damage_data = {
-    "ID": ["obj_0", "obj_1", "obj_2", "obj_3", "obj_4"],
-    "Object": [
-        "collapsed structure",      # 倒塌结构 (隐含：生命危险)
-        "fallen tree blocking road",# 倒树 (隐含：交通阻断)
-        "damaged roof",             # 屋顶 (隐含：财产损失)
-        "downed power lines",       # 电线 (隐含：极度危险)
-        "flooded street"            # 积水 (隐含：阻碍通行)
-    ],
-    "Damage_Type": ["Structural Failure", "Blockage", "Roof Loss", "Electrical Hazard", "Flooding"],
-    "Level": ["Severe", "Moderate", "Moderate", "Severe", "Moderate"],
-    # Location 数据在这一步主要用于展示，推理主要靠 Object 语义
-    "Location": [[0,0,0,0]] * 5 
-}
-df_agent3_output = pd.DataFrame(mock_damage_data)
+if __name__ == "__main__":
+    # 1. Synthesize Perception Data
+    # Simulates the output from the upstream 'Perception Agent' (e.g., object detection results)
+    # mirroring the specific Hurricane Ian scenario shown in the reference image.
+    perception_data = [
+        {
+            "Source": "SVI", 
+            "Object": "Debris (Furniture/Appliances)", 
+            "Level": "Severe", 
+            "Context": "Massive piles obstructing the roadway, indicating structural gutting."
+        },
+        {
+            "Source": "SVI", 
+            "Object": "Vegetation", 
+            "Level": "Moderate", 
+            "Context": "Trees stripped of leaves but remaining upright."
+        },
+        {
+            "Source": "SVI", 
+            "Object": "Residential Structure", 
+            "Level": "Severe", 
+            "Context": "Homes appear gutted by hydraulic force (surge)."
+        },
+        {
+            "Source": "RSI", 
+            "Object": "Terrain/Soil", 
+            "Level": "Severe", 
+            "Context": "High water saturation visible in aerial view."
+        }
+    ]
+    
+    df_perception = pd.DataFrame(perception_data)
 
-# 2. 初始化 Agent
-reasoning_agent = DisasterReasoningAgent(api_key=os.environ["GEMINI_API_KEY"])
+    # 2. Initialize Agent
+    if "GEMINI_API_KEY" not in os.environ:
+        print("Error: GEMINI_API_KEY environment variable not found.")
+    else:
+        reasoning_agent = DisasterReasoningAgent(
+            api_key=os.environ["GEMINI_API_KEY"],
+            model_name="gemini-1.5-pro" 
+        )
 
-# 3. 运行推理 (不再传入 geo_context)
-final_report = reasoning_agent.run_reasoning_engine(df_agent3_output)
+        # 3. Run Inference
+        assessment_report = reasoning_agent.execute_inference(df_perception)
 
-# 4. 显示报告
-display(Markdown(final_report))
+        # 4. Visualization
+        # Renders the report as an HTML table suitable for Jupyter Notebooks
+        df_display = reasoning_agent.render_report_table(assessment_report)
+        
+        # Configure Pandas for full text display (essential for the Reasoning fields)
+        pd.set_option('display.max_colwidth', None)
+        
+        # Display formatted output
+        display(HTML(df_display.to_html().replace("\\n", "<br>")))
