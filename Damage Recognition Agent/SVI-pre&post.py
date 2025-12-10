@@ -14,10 +14,10 @@ os.environ["GEMINI_API_KEY"] = "Your API"
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 # Dataset Path
-DATASET_ROOT_PATH = "/content/drive/MyDrive/Manuscript_Ph.D./3rd_DisasterMind AI agent (organization）/Dataset/pre and post SVI(50-50-50)"
+DATASET_ROOT_PATH = ".../Dataset/pre and post SVI(50-50-50)"
 
 # Output Excel Filename
-OUTPUT_EXCEL_FILE = "/content/drive/MyDrive/Manuscript_Ph.D./3rd_DisasterMind AI agent (organization）/Dataset/gemini-3-pro_PrePost_SVI_Assessment_Results_Fixed2023_2024.xlsx"
+OUTPUT_EXCEL_FILE = ".../Dataset/gemini-3-pro_PrePost_SVI_Assessment_Results_Fixed2023_2024.xlsx"
 
 # --- 2. Core Assessment Function ---
 
