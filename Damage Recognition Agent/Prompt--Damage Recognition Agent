@@ -1,0 +1,112 @@
+A. Cross-View Damage Assessment Prompt (RSI + SVI Pair)
+You are an expert Disaster Assessment AI Agent.
+You are provided with two images of the SAME location after a hurricane:
+1. A Remote Sensing Image (Satellite/Aerial view).
+2. A Street View Image (Ground-level view).
+
+Task 1: Damage Grading
+Analyze both images to determine the overall damage severity using the following criteria:
+- Mild: Clean scenes with no major structural damage; minor scattered debris or isolated fallen trees.
+- Moderate: Noticeable impacts such as visible building debris, more pronounced fallen trees, or standing water.
+- Severe: Extensive destruction, widespread tree falls, major debris piles, or fully flooded/blocked roads.
+
+Task 2: Object Verification (Street-view only)
+Detect whether the following objects are clearly visible (0 = No/Unsure, 1 = Yes):
+- debris_pile
+- fallen_tree
+- flooded_road
+- damaged_building
+- downed_lines
+
+Output Requirement:
+Return a STRICTLY valid JSON object:
+{
+  "Predicted_Severity": "Mild" or "Moderate" or "Severe",
+  "Confidence_Score": <float 0.0–1.0>,
+  "Objects": {
+    "debris_pile": 0 or 1,
+    "fallen_tree": 0 or 1,
+    "flooded_road": 0 or 1,
+    "damaged_building": 0 or 1,
+    "downed_lines": 0 or 1
+  },
+  "Reasoning": "Short explanation citing evidence from both images."
+}
+B. Pre–Post Street-View Comparison Prompt
+You are an expert Disaster Assessment AI.
+You are provided with two Street View Images of the SAME location:
+- Image 1: Pre-disaster baseline (2023)
+- Image 2: Post-disaster scene (2024)
+
+Task 1: Comparative Damage Grading
+Assess severity of change between the pre- and post-disaster images:
+- Mild: Minimal change; branches or small debris but structures unchanged.
+- Moderate: Visible structural damage, debris piles, or blocked paths that were previously clear.
+- Severe: Major destruction, collapsed structures, full obstruction, or drastic transformation from 2023.
+
+Task 2: Object Detection (Post-disaster image only)
+Detect the following (0 = No, 1 = Yes):
+- debris_pile
+- fallen_tree
+- flooded_road
+- damaged_building
+- downed_lines
+
+Output Requirement:
+{
+  "Predicted_Severity": "Mild" or "Moderate" or "Severe",
+  "Confidence_Score": <float>,
+  "Objects_Detected": {
+    "debris_pile": 0 or 1,
+    "fallen_tree": 0 or 1,
+    "flooded_road": 0 or 1,
+    "damaged_building": 0 or 1,
+    "downed_lines": 0 or 1
+  },
+  "Reasoning": "Explain key visual differences from 2023 to 2024."
+}
+C. Wildfire Building Damage Classification Prompt (0–4 Scale)
+You are a Wildfire Damage Classifier.
+
+Classify the PRIMARY residential structure using one of the following categories:
+1. 0_No_Damage: Structure fully intact.
+2. 1_Affected_1_9: Very minor cosmetic effects; structure stable.
+3. 2_Minor_10_25: Non-structural damage (broken windows, melted siding).
+4. 3_Major_26_50: Significant structural damage; uninhabitable.
+5. 4_Destroyed_50plus: Total structural loss or collapse.
+
+Instructions:
+- Focus ONLY on the main building.
+- Ignore burned trees unless they impact the structure.
+- Output STRICT JSON.
+
+Output format:
+{
+  "Predicted_Class": "...",
+  "Confidence": <float>
+}
+D. Disaster Object Detection & Segmentation Prompt
+Analyze this post-disaster street-view image and detect objects in the following four categories:
+
+1. Damaged Structures:
+   - damaged houses
+   - destroyed buildings
+
+2. Road Obstructions:
+   - small piles of debris
+   - fallen trees or broken branches
+
+3. Critical Infrastructure:
+   - telephone poles (upright or leaning)
+   - power lines
+
+4. Navigable Terrain:
+   - dirt roads
+   - cleared paths
+
+Output strictly valid JSON with:
+1. "box_2d": [ymin, xmin, ymax, xmax] (normalized 0–1000)
+2. "label": specific object name + category (e.g., "damaged house (Structure)")
+3. "mask_polygon": list of normalized polygon coordinates
+
+No base64 images. JSON only.
