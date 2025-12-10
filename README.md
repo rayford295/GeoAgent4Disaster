@@ -1,6 +1,10 @@
 # GeoAgent4Disaster
 A Multi-Agent Framework for Multimodal Disaster Damage Assessment
 
+<p align="center">
+  <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/proposed%20framework.drawio.png" width="80%" />
+</p>
+
 ## Overview
 GeoAgent4Disaster is an autonomous multi-agent GeoAI framework designed for hyperlocal, interpretable, and near–real-time disaster assessment.  
 The system integrates multimodal inputs—satellite imagery, street-view imagery, textual cues, and temporal change information—and performs a full pipeline of:
@@ -36,12 +40,36 @@ Detects hazard type, identifies image mode, and plans downstream processing.
 
 ### 2. Image Restoration Agent  
 Enhances degraded SVI/RSI for better structural clarity and reliable analysis.
+<p align="center">
+  <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/agent2_sample.png" width="70%" />
+</p>
 
 ### 3. Damage Recognition Agent  
 Performs object-level detection, severity classification, and change-based reasoning.
 
 ### 4. Disaster Reasoning Agent  
 Synthesizes structured outputs to generate high-level causal interpretation and actionable recovery recommendations.
+
+---
+
+## Example Outputs
+
+### LLM-Based Object Detection  
+<p align="center">
+  <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/example-llm-object%20detection.drawio.png" width="75%" />
+</p>
+
+*Figure 2. Example of object-level detection using vision–language models.*
+
+---
+
+### Final Output (Structured JSON + Explanation)
+
+<p align="center">
+  <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/final%20output.png" width="70%" />
+</p>
+
+*Figure 3. Final agent-produced output including severity, object detection, and reasoning.*
 
 ---
 
@@ -53,5 +81,12 @@ The framework supports and evaluates multiple multimodal disaster datasets, incl
 - Multi-hazard SVI datasets (wildfire, flooding, earthquake, etc.)
 
 Dataset details and preprocessing scripts will be released alongside the paper.
+<p align="center">
+  <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/geolocation.png" width="80%" />
+</p>
+
+<p align="center">
+  <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/stastics.png" width="70%" />
+</p>
 
 ---
