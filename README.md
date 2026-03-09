@@ -1,54 +1,103 @@
 # Agent4Disaster
-Towards Autonomous Disaster Assessment: A Cross-View Multi-Agent Pipeline for Zero-Shot Damage Diagnosis
+## Towards Autonomous Disaster Assessment: A Cross-View Multi-Agent Pipeline for Zero-Shot Damage Diagnosis
 
 <p align="center">
   <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/proposed%20framework.drawio.png" width="80%" />
 </p>
 
+---
+
 ## Overview
-Agent4Disaster is an autonomous multi-agent GeoAI framework designed for hyperlocal, interpretable, and near–real-time disaster assessment.  
-The system integrates multimodal inputs—satellite imagery, street-view imagery, textual cues, and temporal change information—and performs a full pipeline of:
+
+**Agent4Disaster** is an autonomous **GeoAI multi-agent framework** designed for  
+**hyperlocal, interpretable, and near–real-time disaster assessment**.
+
+The framework integrates **multimodal geospatial observations**, including:
+
+- Satellite imagery (RSI)
+- Street-view imagery (SVI)
+- Textual and contextual cues
+- Temporal change information
+
+It performs an **end-to-end disaster intelligence pipeline** including:
 
 - Disaster perception  
 - Image restoration  
 - Damage recognition  
-- Disaster reasoning & recovery recommendation  
+- Disaster reasoning and recovery recommendation  
 
-By leveraging vision–language foundation models and agent-based orchestration, the framework enables cross-view understanding, zero/few-shot disaster analysis, and automated report generation without task-specific retraining.
+By leveraging **vision–language foundation models** and **agent-based orchestration**,  
+Agent4Disaster enables **cross-view disaster understanding and zero/few-shot damage diagnosis** without task-specific retraining.
 
-This repository hosts the project materials associated with our research paper.
+This repository hosts project materials associated with our research paper.
 
-> **Note:** The full source code is currently **not publicly available** because the paper has not yet been released on a public platform.
-
----
-
-## Key Features
-- Multi-agent collaboration for perception, enhancement, recognition, and reasoning  
-- Multimodal disaster interpretation (RSI + SVI + text)  
-- Zero-shot cross-view disaster severity assessment  
-- Structured JSON outputs for downstream analytics  
-- Automated disaster situation reporting for the “golden 36 hours”  
-- Evaluation across cross-view, bi-temporal, and multi-hazard datasets  
+> **Note**  
+> The full source code is currently **not publicly available** because the paper has not yet been released on a public platform.
 
 ---
 
-## Project Architecture
-The Agent4Disaster pipeline consists of four core agents:
+# Key Features
 
-### 1. Disaster Perception Agent  
-Detects hazard type, identifies image mode, and plans downstream processing.
+- **Autonomous multi-agent disaster intelligence pipeline**
+- **Cross-view disaster understanding** (Satellite ↔ Street-view)
+- **Multimodal disaster interpretation** (RSI + SVI + text)
+- **Zero-shot damage assessment** using foundation models
+- **Structured JSON outputs** for downstream analytics
+- **Automated disaster situation reports** for the *“golden 36 hours”*
+- Evaluation across **cross-view**, **bi-temporal**, and **multi-hazard** datasets
 
-### 2. Image Restoration Agent  
-Enhances degraded SVI/RSI for better structural clarity and reliable analysis.
+---
+
+# Project Architecture
+
+The **Agent4Disaster pipeline** consists of four core agents.
+
+## 1. Disaster Perception Agent
+
+Identifies:
+
+- disaster type
+- image modality
+- structural context
+
+and plans the downstream analysis workflow.
+
+---
+
+## 2. Image Restoration Agent
+
+Enhances degraded imagery to improve structural visibility for downstream reasoning.
+
+Supported inputs include:
+
+- Street-view imagery (SVI)
+- Remote sensing imagery (RSI)
+
 <p align="center">
   <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/agent2_sample.png" width="70%" />
 </p>
 
-### 3. Damage Recognition Agent  
-Performs object-level detection, severity classification, and change-based reasoning.
+---
 
-### 4. Disaster Reasoning Agent  
-Synthesizes structured outputs to generate high-level causal interpretation and actionable recovery recommendations.
+## 3. Damage Recognition Agent
+
+Performs:
+
+- Object-level damage detection  
+- Damage severity classification  
+- Change-aware reasoning (pre vs. post disaster)
+
+This step combines **vision-language models and structured reasoning** to produce interpretable outputs.
+
+---
+
+## 4. Disaster Reasoning Agent
+
+Synthesizes all intermediate outputs and produces:
+
+- Structured disaster interpretation
+- Causal explanations
+- Recovery recommendations
 
 <p align="center">
   <img src="https://github.com/rayford295/Agent4Disaster/blob/main/figure/reasoning_RESULTs.drawio.png" width="85%" />
@@ -56,35 +105,48 @@ Synthesizes structured outputs to generate high-level causal interpretation and 
 
 ---
 
-## Example Outputs
+# Example Outputs
 
-### LLM-Based Object Detection  
+## LLM-Based Object Detection
+
 <p align="center">
   <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/example-llm-object%20detection.drawio.png" width="75%" />
 </p>
 
-*Figure 2. Example of object-level detection using vision–language models.*
+*Figure 2. Example of object-level damage detection using vision–language models.*
 
 ---
 
-### Final Output (Structured JSON + Explanation)
+## Final Output (Structured JSON + Explanation)
 
 <p align="center">
   <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/final%20output.png" width="70%" />
 </p>
 
-*Figure 3. Final agent-produced output including severity, object detection, and reasoning.*
+*Figure 3. Final disaster intelligence output generated by the agent pipeline.*
+
+Outputs include:
+
+- detected objects  
+- damage severity  
+- structured reasoning  
+- recovery suggestions  
 
 ---
 
-## Datasets
-The framework supports and evaluates multiple multimodal disaster datasets, including:
+# Datasets
 
-- Cross-view hurricane imagery (paired SVI + RSI)  
-- Bi-temporal street-view imagery (pre- vs. post-disaster)  
-- Multi-hazard SVI datasets (wildfire, flooding, earthquake, etc.)
+Agent4Disaster supports multiple **multimodal disaster datasets**, including:
 
-Dataset details and preprocessing scripts will be released alongside the paper.
+- **Cross-view hurricane imagery** (paired SVI + RSI)
+- **Bi-temporal street-view imagery** (pre vs. post disaster)
+- **Multi-hazard street-view datasets**  
+  - wildfire  
+  - flooding  
+  - earthquake  
+
+Dataset details and preprocessing scripts will be released with the paper.
+
 <p align="center">
   <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/geolocation.png" width="80%" />
 </p>
@@ -94,3 +156,29 @@ Dataset details and preprocessing scripts will be released alongside the paper.
 </p>
 
 ---
+
+# Citation
+
+If you find this work useful, please consider citing our paper (coming soon).
+
+```
+@article{yang2026agent4disaster,
+  title={Towards Autonomous Disaster Assessment: A Cross-View Multi-Agent Pipeline for Zero-Shot Damage Diagnosis},
+  author={Yang, Yifan and others},
+  year={2026}
+}
+```
+
+---
+
+# License
+
+This project is released for **academic research purposes**.  
+Code will be released after paper publication.
+
+---
+
+# Acknowledgements
+
+This research is conducted in the **GEAR Lab** at  
+**Texas A&M University Department of Geography**.
