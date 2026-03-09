@@ -50,6 +50,10 @@ Performs object-level detection, severity classification, and change-based reaso
 ### 4. Disaster Reasoning Agent  
 Synthesizes structured outputs to generate high-level causal interpretation and actionable recovery recommendations.
 
+<p align="center">
+  <img src="https://github.com/rayford295/Agent4Disaster/blob/main/figure/heatmap_prepost.png" width="75%" />
+</p>
+
 ---
 
 ## Example Outputs
