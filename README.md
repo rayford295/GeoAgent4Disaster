@@ -178,8 +178,3 @@ This project is released for **academic research purposes**.
 Code will be released after paper publication.
 
 ---
-
-# Acknowledgements
-
-This research is conducted in the **GEAR Lab** at  
-**Texas A&M University Department of Geography**.
