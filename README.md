@@ -2,8 +2,6 @@
 
 **Towards Autonomous Disaster Assessment: A Cross-View Multi-Agent Pipeline for Zero-Shot Damage Diagnosis**
 
-> Code will be released upon paper publication.
-
 ---
 
 ## Overview
@@ -18,9 +16,32 @@ By leveraging **vision-language foundation models** and **agent-based orchestrat
 
 ---
 
-## Pipeline
+## Repository Structure
 
-The framework consists of four sequential agents:
+```
+Agent4Disaster/
+├── Disaster Perception Agent/
+│   ├── DisasterPerceptionAgent.py
+│   └── Prompt--Disaster Perception Agent
+├── Image Restoration Agent/
+│   ├── test.py
+│   └── Prompt--Image Restoration Agent
+├── Damage Recognition Agent/
+│   ├── SVI&RSI.py
+│   ├── SVI-pre&post.py
+│   ├── SVI-wildfire.py
+│   ├── zero_shot_object_detection_Agent3.ipynb
+│   └── Prompt--Damage Recognition Agent
+├── Disaster Reasoning Agent/
+│   ├── Large Language Model-based evaluation.py
+│   ├── test.py
+│   └── Prompt--Disaster Reasoning Agent
+└── figure/
+```
+
+---
+
+## Pipeline
 
 | Agent | Role |
 |---|---|
@@ -54,8 +75,6 @@ Evaluated across three multimodal disaster dataset categories:
 | Geolocation Distribution | Dataset Statistics |
 |:---:|:---:|
 | <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/geolocation.png" width="340"/> | <img src="https://github.com/rayford295/GeoAgent4Disaster/blob/main/figure/stastics.png" width="340"/> |
-
-Dataset details and preprocessing scripts will be released with the paper.
 
 ---
 
